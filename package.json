@@ -1,0 +1,33 @@
+{
+  "name": "codeship-test",
+  "description": "",
+  "author": "Daphne Maddox <laurelnaiad@gmail.com>",
+  "publisher": "laurelnaiad",
+  "license": "MIT",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/laurelnaiad/codeship-test.git"
+  },
+  "engines": {
+    "npm": ">=2.0.0",
+    "node": ">= 6.5.0"
+  },
+  "dependencies": {
+    "@types/chai": "^4.0.1",
+    "@types/dockerode": "^2.4.5",
+    "@types/mocha": "^2.2.38",
+    "@types/request": "^2.0.0",
+    "chai": "^4.1.0",
+    "dockerode": "^2.5.0",
+    "fs-extra": "^4.0.1",
+    "get-port": "^3.1.0",
+    "ip": "^1.1.5",
+    "mocha": "^3.4.2",
+    "request": "^2.81.0",
+    "tar-fs": "^1.15.3"
+  },
+  "scripts": {
+    "test": "node_modules/.bin/mocha ./test/test.js"
+  }
+}
