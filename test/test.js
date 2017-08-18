@@ -1,138 +1,87 @@
 const path = require('path')
+const dns = require('dns')
+const chalk = require('chalk')
 const getPort = require('get-port')
 const Docker = require('dockerode')
 const fsx = require('fs-extra')
 const tar = require('tar-fs')
-const JSONStream = require('JSONStream')
 const request = require('request')
 const ip = require('ip')
 const docker = new Docker()
 const { expect, assert } = require('chai')
+const { progressFollower, progressToLogLines } = require('./progressListener')
 
-const progressFollower = (step, msg) => {
-  console.log(step || '', msg && msg.replace(/\n*$/, '') || '')
-}
 
-function progressToLogLines(
-  stream,
-  onLogLine
-) {
-  let id
-  const myListeners = []
-  const parser = JSONStream.parse()
-  function removeMyListeners() {
-    myListeners.forEach(l => parser.removeListener(l.evt, l.listener))
-  }
-  return new Promise((res, rej) => {
-    const rootListener = (evt) => {
-      if (!(evt instanceof Object)) {
-        return
-      }
-      if (evt.error) {
-        removeMyListeners()
-        if (evt.error instanceof Error) {
-          rej(evt.error)
+function getLocalDockAddress() {
+  return new Promise((res) => {
+    dns.resolve4('docker.for.mac.localhost', (err, addr) => {
+      if (err) {
+        if (process.env.CI) {
+          console.log(chalk.green('in CI'))
+          res(ip.address())
         }
         else {
-          rej(new Error(evt.error))
+          console.log(chalk.green('not in CI'))
+          res('localhost')
         }
       }
       else {
-        const msg = evt.stream
-        const aux = evt.aux
-        if (msg) {
-          msg.trim().split('\n').forEach((line) => {
-            line = line.trim()
-            const matchesSha = line.match(/^sha\:(.*)/)
-            if (matchesSha) {
-              id = matchesSha[1]
-            }
-          })
-          onLogLine(msg)
-        }
-        else {
-          if (evt.aux && evt.aux.ID) {
-            id = evt.aux.ID
-          }
-        }
+        console.log(chalk.green(
+          'docker.for.mac.localhost resolves, using it ' +
+          '\n(this case only seems to pop up under local jet)'
+        ))
+        res(addr)
       }
-    }
-    const errorListener = (err) => {
-      removeMyListeners()
-      if (err instanceof Error) {
-        rej(err)
-      }
-      else {
-        rej(new Error(err))
-      }
-    }
-    const endListener = (thing1, otherthing) => {
-      removeMyListeners()
-      if (!id) {
-        rej(new Error('Build stream ended without an id.'))
-      }
-      res(id)
-    }
-
-    myListeners.push({ evt: 'root', listener: rootListener })
-    myListeners.push({ evt: 'error', listener: errorListener })
-    myListeners.push({ evt: 'end', listener: endListener })
-    parser.on('root', rootListener)
-    parser.on('error', errorListener)
-    parser.on('end', endListener)
-    stream.pipe(parser)
+    })
+  })
+  .then((addr) => {
+    console.log(chalk.magenta('using ' + addr))
+    return addr
   })
 }
 
-
 describe('basic networking', function () {
-  // the system under test in real life builds images -- this before
-  // is standing in for the system under test. the problem seeking
-  // a solution is that when running in jet, I cannot contact the running container
+  let dockerHostAddress // primed in `before`
+
   before(function () {
     this.timeout(50 * 1000)
     const tarred = tar.pack(path.resolve(__dirname, '../src'))
     return docker.buildImage(tarred, { t: 'my-image' })
     .then((stream) => progressToLogLines(stream, (line) => progressFollower(undefined, line)))
+    .then(() => getLocalDockAddress())
+    .then(addr => dockerHostAddress = addr)
   })
 
   it('runs a container, can make request to it', function () {
     this.timeout(20 * 1000)
+    const oneMsInNs = 1000000
+    const oneSInNs = 1000 * oneMsInNs
+    // const fiveSinNs = 5 * oneSInNs
     const containerName = 'my-test'
     let port
     return getPort()
     .then((p) => port = p)
-    .then(() => {
-      const nw = docker.getNetwork('my-test-scratch')
-      return nw.inspect()
-      .then(() => {}, (err) => {
-        return docker.createNetwork({
-          Name: 'my-test-scratch',
-          Driver: 'bridge',
-          IPAM: {
-            Config: [ { Subnet: '192.100.200.0/24' } ]
-          },
-        })
-      })
-    })
     .then(() => docker.createContainer({
       name: containerName,
       Image: 'my-image',
       Detach: true,
       Tty: true,
-      HostConfig: {
-        PortBindings: {
-          ['5000/tcp']: [{ 'HostPort': '5000' }],
-        }
+      Healthcheck: {
+        Test: [
+          'CMD-SHELL',
+          `curl --silent --fail http://localhost:5000/file.txt || exit 1`
+        ],
+        Interval: oneSInNs,
+        Timeout: oneSInNs,
+        Retries: 12,
+        StartPeriod: oneSInNs
       },
-      NetworkingConfig: {
-        EndpointsConfig: {
-          'my-test-scratch': { IPAMConfig: {  IPv4Address: '192.100.200.2' } }
-        }
-      }
+      HostConfig: {
+        PortBindings: { '5000/tcp': [ { HostPort: port.toString() } ] }
+      },
     }))
-    .then(() => docker.getContainer(containerName))
-    .then(ct => {
+    .then(() => {
+      const ct = docker.getContainer(containerName)
       return new Promise((res, rej) => {
         docker.getEvents({
           container: 'my-test',
@@ -147,10 +96,7 @@ describe('basic networking', function () {
             stream.once('data', (evt) => {
               const status = JSON.parse(evt.toString()).status
               if (status.match(/healthy/)) {
-                const address  = ip.address()
-                // this works when not in the jet container
-                // in jet, get Error: connect ECONNREFUSED 172.17.0.2:34083` (or whatever port it happens to be)
-                request(`http://192.100.200.2:5000/file.txt`, (err, resp, body) => {
+                request(`http://${dockerHostAddress}:${port.toString()}/file.txt`, (err, resp, body) => {
                   ct.kill()
                   .then(() => ct.remove())
                   .then(() => err ? rej(err) : res(body))

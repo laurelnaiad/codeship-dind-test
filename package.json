@@ -19,6 +19,7 @@
     "@types/mocha": "^2.2.38",
     "@types/request": "^2.0.0",
     "chai": "^4.1.0",
+    "chalk": "^2.1.0",
     "dockerode": "^2.5.0",
     "fs-extra": "^4.0.1",
     "get-port": "^3.1.0",
