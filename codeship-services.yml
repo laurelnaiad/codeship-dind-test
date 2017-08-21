@@ -1,4 +1,4 @@
-test-codeship-test:
+test_codeship_test:
   add_docker: true
   build:
     dockerfile: ship/ship.Dockerfile

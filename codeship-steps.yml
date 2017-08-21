@@ -1,2 +1,2 @@
-- service: test-codeship-test
+- service: test_codeship_test
   command: yarn test
