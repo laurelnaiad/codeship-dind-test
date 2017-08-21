@@ -11,6 +11,7 @@ const docker = new Docker()
 const { expect, assert } = require('chai')
 const { progressFollower, progressToLogLines } = require('./progressListener')
 
+const svcName = 'test-codeship-test'
 
 function getLocalDockAddress() {
   return new Promise((res) => {
@@ -18,7 +19,7 @@ function getLocalDockAddress() {
       if (err) {
         if (process.env.CI) {
           console.log(chalk.green('in CI'))
-          res(ip.address())
+          res(svcName)
         }
         else {
           console.log(chalk.green('not in CI'))
