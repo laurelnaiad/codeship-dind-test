@@ -11,7 +11,7 @@ const docker = new Docker()
 const { expect, assert } = require('chai')
 const { progressFollower, progressToLogLines } = require('./progressListener')
 
-const svcName = 'test_codeship_test.local'
+const svcName = 'localhost'
 
 function getLocalDockAddress() {
   return new Promise((res) => {
